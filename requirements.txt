@@ -1,0 +1,7 @@
+fastapi==0.110.0
+uvicorn==0.29.0
+sqlalchemy==2.0.29
+pydantic==2.6.4
+requests==2.31.0
+twilio==9.0.4
+python-multipart==0.0.9
