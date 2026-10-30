@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FloodLane – Hyper-Local Street Flood Intelligence</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Leaflet GIS Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <style>
+    #map { height: calc(100vh - 64px); width: 100%; z-index: 10; }
+    .whatsapp-bg {
+      background-color: #efeae2;
+      background-image: radial-gradient(#d1ccc0 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+    .pulse-ring {
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans overflow-hidden">
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="h-16 bg-slate-950 border-b border-slate-800 px-4 flex items-center justify-between z-50 relative">
+    <div class="flex items-center space-x-3">
+      <div class="bg-blue-600 text-white p-2 rounded-lg shadow-lg shadow-blue-600/30">
+        <i class="fa-solid fa-house-flood-water text-xl"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg tracking-tight flex items-center gap-2">
+          FloodLane <span class="text-xs bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">LIVE PILOT</span>
+        </h1>
+        <p class="text-xs text-slate-400 hidden sm:block">Hyper-Local Crowd-Sourced Street Flood Map & WhatsApp Alert Engine</p>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex items-center space-x-1 sm:space-x-2 bg-slate-900 p-1 rounded-xl border border-slate-800">
+      <button onclick="switchTab('map')" id="tab-map" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-blue-600 text-white transition flex items-center gap-1.5">
+        <i class="fa-solid fa-map-location-dot"></i> <span>Live Map</span>
+      </button>
+      <button onclick="switchTab('whatsapp')" id="tab-whatsapp" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition flex items-center gap-1.5">
+        <i class="fa-brands fa-whatsapp text-emerald-400 text-base"></i> <span>WhatsApp Bot</span>
+      </button>
+      <button onclick="switchTab('admin')" id="tab-admin" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition flex items-center gap-1.5">
+        <i class="fa-solid fa-chart-pie text-amber-400"></i> <span>Admin & Alerts</span>
+      </button>
+    </div>
+
+    <!-- Quick One-Tap Report CTA -->
+    <div class="flex items-center space-x-2">
+      <button onclick="openModal('subscribeModal')" class="hidden md:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-3 py-2 rounded-lg border border-slate-700 transition">
+        <i class="fa-solid fa-bell text-amber-400"></i> Get Alerts
+      </button>
+      <button onclick="openReportModal()" class="pulse-ring bg-red-600 hover:bg-red-500 text-white text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-lg shadow-lg flex items-center gap-1.5 transition">
+        <i class="fa-solid fa-bolt"></i> <span>Report Flooding</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ========================================================= -->
+  <!-- VIEW 1: LIVE STREET-LEVEL FLOOD MAP                       -->
+  <!-- ========================================================= -->
+  <main id="view-map" class="relative w-full h-[calc(100vh-64px)]">
+    <div id="map"></div>
+
+    <!-- Map Floating Filter & Legend Overlay -->
+    <div class="absolute top-4 left-4 z-20 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl p-3.5 shadow-2xl w-72 space-y-3">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Filter Reports</span>
+        <span id="live-report-count" class="text-xs font-bold text-blue-400">0 Active</span>
+      </div>
+
+      <!-- Time Filter -->
+      <div class="grid grid-cols-3 gap-1 bg-slate-800 p-1 rounded-lg text-xs">
+        <button onclick="setTimeFilter(1)" id="time-1" class="py-1 rounded font-medium text-slate-300 hover:bg-slate-700">1 Hr</button>
+        <button onclick="setTimeFilter(6)" id="time-6" class="py-1 rounded font-medium text-slate-300 hover:bg-slate-700">6 Hrs</button>
+        <button onclick="setTimeFilter(24)" id="time-24" class="py-1 rounded font-medium bg-blue-600 text-white">24 Hrs</button>
+      </div>
+
+      <!-- Severity Legend -->
+      <div class="space-y-1.5 pt-1 border-t border-slate-800 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-red-500 inline-block ring-2 ring-red-500/40"></span> Above Knee (&gt;30cm)</span>
+          <span class="text-red-400 font-medium">Impassable</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-amber-500 inline-block ring-2 ring-amber-500/40"></span> Knee-Deep (10-30cm)</span>
+          <span class="text-amber-400 font-medium">Avoid 2W</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-yellow-300 inline-block"></span> Ankle-Deep (&lt;10cm)</span>
+          <span class="text-yellow-300 font-medium">Slow</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> Wet / Clear Road</span>
+          <span class="text-emerald-400 font-medium">Passable</span>
+        </div>
+      </div>
+
+      <button onclick="openModal('subscribeModal')" class="w-full py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-medium text-amber-300 flex items-center justify-center gap-1.5">
+        <i class="fa-solid fa-bell"></i> Subscribe to 500m Lane Alerts
+      </button>
+    </div>
+  </main>
+
+  <!-- ========================================================= -->
+  <!-- VIEW 2: WHATSAPP BOT SIMULATOR & TWILIO SETUP             -->
+  <!-- ========================================================= -->
+  <section id="view-whatsapp" class="hidden h-[calc(100vh-64px)] overflow-y-auto bg-slate-900 p-4 sm:p-6">
+    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
+      
+      <!-- Left Column: Interactive Phone WhatsApp Simulator -->
+      <div class="lg:col-span-7 flex flex-col bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl h-[600px] lg:h-full">
+        <!-- WhatsApp Header -->
+        <div class="bg-[#075E54] px-4 py-3 flex items-center justify-between text-white">
+          <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-full bg-emerald-700 flex items-center justify-center text-lg font-bold">
+              <i class="fa-solid fa-robot"></i>
+            </div>
+            <div>
+              <h3 class="font-semibold text-sm flex items-center gap-1.5">
+                FloodLane Official Bot <i class="fa-solid fa-circle-check text-emerald-300 text-xs"></i>
+              </h3>
+              <p class="text-[11px] text-emerald-100">online • AI NLP + Geo-Alert Engine</p>
+            </div>
+          </div>
+          <span class="text-xs bg-black/20 px-2.5 py-1 rounded-full">+91 99001 12233</span>
+        </div>
+
+        <!-- Chat Messages Container -->
+        <div id="wa-chat-box" class="flex-1 p-4 overflow-y-auto space-y-3 whatsapp-bg text-slate-900 text-sm">
+          <!-- Initial Bot Greeting -->
+          <div class="flex justify-start">
+            <div class="bg-white rounded-xl rounded-tl-none p-3 max-w-md shadow border border-slate-200">
+              <p class="font-semibold text-emerald-800 text-xs mb-1">FloodLane Bot</p>
+              <p class="whitespace-pre-line text-xs sm:text-sm">👋 <b>Welcome to FloodLane!</b> 🌧️
+Send a message describing waterlogging in your lane (e.g. <i>"Knee-deep water near JP Nagar"</i>) or use the quick-test presets on the right!
+
+Reports sent here are parsed by AI and <b>instantly plotted on the Live Map</b>.</p>
+              <p class="text-[10px] text-slate-400 text-right mt-1">Just now</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Bar -->
+        <form onsubmit="sendSimulatedWhatsApp(event)" class="bg-[#f0f2f5] p-3 flex items-center gap-2 border-t border-slate-300">
+          <button type="button" onclick="sendWhatsAppWithGPS()" title="Send Current GPS Pin" class="p-2.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-200 rounded-full transition">
+            <i class="fa-solid fa-location-dot text-lg"></i>
+          </button>
+          <input id="wa-input" type="text" placeholder="Type a message (e.g. Waist deep water in Koramangala)..." class="flex-1 bg-white text-slate-900 rounded-full px-4 py-2 text-sm focus:outline-none border border-slate-300" required />
+          <button type="submit" class="bg-[#00a884] hover:bg-[#008f6f] text-white w-10 h-10 rounded-full flex items-center justify-center shadow transition">
+            <i class="fa-solid fa-paper-plane"></i>
+          </button>
+        </form>
+      </div>
+
+      <!-- Right Column: Quick Test Prompts & Twilio Webhook Instructions -->
+      <div class="lg:col-span-5 space-y-4 overflow-y-auto pr-1">
+        <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-3">
+          <h3 class="font-bold text-sm text-emerald-400 flex items-center gap-2">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> 1-Click Bot Test Scenarios
+          </h3>
+          <p class="text-xs text-slate-300">Click any preset below to test the NLP extraction, multi-turn clarification, and 500m alert triggers:</p>
+          
+          <div class="space-y-2">
+            <button onclick="triggerPreset('Knee-deep water outside my shop near JP Nagar')" class="w-full text-left p-2.5 rounded-xl bg-slate-900 hover:bg-slate-950 border border-slate-700 text-xs transition flex items-center justify-between">
+              <span>🗣️ <i>"Knee-deep water outside my shop near JP Nagar"</i></span>
+              <span class="bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded">NLP Direct</span>
+            </button>
+            <button onclick="triggerPreset('Car stuck and waist deep water in Koramangala')" class="w-full text-left p-2.5 rounded-xl bg-slate-900 hover:bg-slate-950 border border-slate-700 text-xs transition flex items-center justify-between">
+              <span>🚨 <i>"Car stuck and waist deep water in Koramangala"</i></span>
+              <span class="bg-red-500/20 text-red-300 px-2 py-0.5 rounded">Triggers Alert</span>
+            </button>
+            <button onclick="triggerPreset('Water rising fast near Indiranagar')" class="w-full text-left p-2.5 rounded-xl bg-slate-900 hover:bg-slate-950 border border-slate-700 text-xs transition flex items-center justify-between">
+              <span>❓ <i>"Water rising fast near Indiranagar"</i> (No depth)</span>
+              <span class="bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">Bot Asks 1-4</span>
+            </button>
+            <button onclick="triggerPreset('SUBSCRIBE Bellandur')" class="w-full text-left p-2.5 rounded-xl bg-slate-900 hover:bg-slate-950 border border-slate-700 text-xs transition flex items-center justify-between">
+              <span>🔔 <i>"SUBSCRIBE Bellandur"</i></span>
+              <span class="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">Geo Opt-In</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-slate-800/80 border border-slate-700 rounded-2xl p-4 space-y-2">
+          <h3 class="font-bold text-sm text-blue-400 flex items-center gap-2">
+            <i class="fa-solid fa-plug"></i> Connect Real Twilio WhatsApp Sandbox
+          </h3>
+          <p class="text-xs text-slate-300">The backend already exposes a production Twilio TwiML webhook:</p>
+          <code class="block bg-slate-950 p-2.5 rounded-lg text-xs text-emerald-400 font-mono border border-slate-800">
+            POST /webhook/whatsapp
+          </code>
+          <ol class="text-xs text-slate-400 list-decimal list-inside space-y-1 pt-1">
+            <li>Run <code class="text-slate-200">ngrok http 8000</code> in your terminal.</li>
+            <li>Paste <code class="text-slate-200">https://&lt;your-ngrok&gt;.ngrok-free.app/webhook/whatsapp</code> into Twilio Console &rarr; Messaging &rarr; WhatsApp Sandbox Settings.</li>
+            <li>Send WhatsApp texts, photos, or GPS pins from your real phone!</li>
+          </ol>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <!-- VIEW 3: DATA AGGREGATION & ALERT ENGINE DASHBOARD         -->
+  <!-- ========================================================= -->
+  <section id="view-admin" class="hidden h-[calc(100vh-64px)] overflow-y-auto bg-slate-900 p-4 sm:p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+      
+      <!-- Top KPI Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl">
+          <p class="text-xs text-slate-400 uppercase">Total Flood Reports</p>
+          <p id="stat-total-reports" class="text-3xl font-bold text-white mt-1">0</p>
+          <p class="text-xs text-emerald-400 mt-1"><i class="fa-solid fa-circle-nodes"></i> App + WhatsApp</p>
+        </div>
+        <div class="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl">
+          <p class="text-xs text-slate-400 uppercase">Severe / Impassable Lanes</p>
+          <p id="stat-high-reports" class="text-3xl font-bold text-red-400 mt-1">0</p>
+          <p class="text-xs text-slate-400 mt-1">Knee-deep or higher</p>
+        </div>
+        <div class="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl">
+          <p class="text-xs text-slate-400 uppercase">Hyper-Local Alerts Sent</p>
+          <p id="stat-alerts-sent" class="text-3xl font-bold text-amber-400 mt-1">0</p>
+          <p class="text-xs text-slate-400 mt-1">Within 500m radius</p>
+        </div>
+        <div class="bg-slate-800/90 border border-slate-700 p-4 rounded-2xl">
+          <p class="text-xs text-slate-400 uppercase">Subscribed Citizens</p>
+          <p id="stat-subscribers" class="text-3xl font-bold text-blue-400 mt-1">0</p>
+          <p class="text-xs text-slate-400 mt-1">Residents, Shops & Commuters</p>
+        </div>
+      </div>
+
+      <!-- Hotspots & Dispatched Alerts Log -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- Incoming Reports Table -->
+        <div class="lg:col-span-7 bg-slate-800/90 border border-slate-700 rounded-2xl p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-sm flex items-center gap-2">
+              <i class="fa-solid fa-list-check text-blue-400"></i> Incoming Crowd-Sourced Reports
+            </h3>
+            <button onclick="exportCSV()" class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+              <i class="fa-solid fa-download"></i> Export CSV
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-slate-400 border-b border-slate-700 uppercase">
+                <tr>
+                  <th class="py-2 px-2">Lane / Location</th>
+                  <th class="py-2 px-2">Severity</th>
+                  <th class="py-2 px-2">Source</th>
+                  <th class="py-2 px-2">Note</th>
+                </tr>
+              </thead>
+              <tbody id="admin-reports-tbody" class="divide-y divide-slate-700/60"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Right Side: Top Hotspot Clusters & WhatsApp Alert Dispatch Log -->
+        <div class="lg:col-span-5 space-y-6">
+          <!-- Hotspot Clusters -->
+          <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4">
+            <h3 class="font-bold text-sm mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-fire text-red-400"></i> Top 5 Flooding Hotspot Clusters
+            </h3>
+            <div id="admin-hotspots-list" class="space-y-2 text-xs"></div>
+          </div>
+
+          <!-- Dispatched Hyper-Local Alerts Log -->
+          <div class="bg-slate-800/90 border border-slate-700 rounded-2xl p-4">
+            <h3 class="font-bold text-sm mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-paper-plane text-emerald-400"></i> Dispatched Hyper-Local Alerts Log (500m Engine)
+            </h3>
+            <div id="admin-alerts-list" class="space-y-2.5 max-h-64 overflow-y-auto pr-1 text-xs"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= -->
+  <!-- MODAL 1: ONE-TAP IN-APP FLOOD REPORTING (Section 5.2A)    -->
+  <!-- ========================================================= -->
+  <div id="reportModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-base flex items-center gap-2">
+          <i class="fa-solid fa-triangle-exclamation text-red-500"></i> One-Tap Flood Report
+        </h3>
+        <button onclick="closeModal('reportModal')" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form onsubmit="submitOneTapReport(event)" class="space-y-4">
+        <!-- GPS Coordinates Banner -->
+        <div class="bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between text-xs">
+          <div>
+            <p class="text-slate-400">📍 Selected Lane Coordinates:</p>
+            <p id="report-coords-display" class="font-mono text-emerald-400 font-semibold mt-0.5">12.9063, 77.5857</p>
+          </div>
+          <button type="button" onclick="useBrowserGPS()" class="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2.5 py-1.5 rounded-lg hover:bg-blue-600/30">
+            <i class="fa-solid fa-location-crosshairs"></i> Use GPS
+          </button>
+        </div>
+
+        <input type="hidden" id="report-lat" value="12.9063" />
+        <input type="hidden" id="report-lng" value="77.5857" />
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Street / Landmark Name (Optional)</label>
+          <input id="report-loc-name" type="text" placeholder="e.g. Outside XYZ Bakery, JP Nagar 6th Phase" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <!-- One-Tap Predefined Depth Buttons -->
+        <div>
+          <label class="block text-xs text-slate-300 mb-2 font-semibold">Select Water Depth Level *</label>
+          <div class="grid grid-cols-2 gap-2.5">
+            <button type="button" onclick="selectSeverity('none')" id="sev-btn-none" class="sev-btn p-3 rounded-xl border border-slate-700 bg-slate-800 text-left hover:border-emerald-500 transition">
+              <div class="font-bold text-xs text-emerald-400">🟢 No Water / Wet</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">Road clear & passable</div>
+            </button>
+            <button type="button" onclick="selectSeverity('low')" id="sev-btn-low" class="sev-btn p-3 rounded-xl border border-slate-700 bg-slate-800 text-left hover:border-yellow-400 transition">
+              <div class="font-bold text-xs text-yellow-300">🟡 Ankle-Deep</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">~0–10 cm waterlogging</div>
+            </button>
+            <button type="button" onclick="selectSeverity('medium')" id="sev-btn-medium" class="sev-btn p-3 rounded-xl border-2 border-amber-500 bg-amber-500/10 text-left transition">
+              <div class="font-bold text-xs text-amber-400">🟠 Knee-Deep</div>
+              <div class="text-[11px] text-slate-300 mt-0.5">~10–30 cm (Alerts 500m)</div>
+            </button>
+            <button type="button" onclick="selectSeverity('high')" id="sev-btn-high" class="sev-btn p-3 rounded-xl border border-slate-700 bg-slate-800 text-left hover:border-red-500 transition">
+              <div class="font-bold text-xs text-red-400">🔴 Above Knee</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">&gt;30 cm / Lane Impassable</div>
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">Short Note (Optional)</label>
+          <input id="report-note" type="text" placeholder="e.g. Water entering ground floor shops, avoid 2-wheelers" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <button type="submit" class="w-full bg-red-600 hover:bg-red-500 text-white font-semibold py-2.5 rounded-xl shadow-lg transition text-sm">
+          Submit Live Flood Report
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================= -->
+  <!-- MODAL 2: SUBSCRIBE TO HYPER-LOCAL ALERTS (Section 5.1)    -->
+  <!-- ========================================================= -->
+  <div id="subscribeModal" class="fixed inset-0 bg-black/75 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-base flex items-center gap-2">
+          <i class="fa-solid fa-bell text-amber-400"></i> Subscribe to 500m Flood Alerts
+        </h3>
+        <button onclick="closeModal('subscribeModal')" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <form onsubmit="submitSubscription(event)" class="space-y-3 text-xs">
+        <p class="text-slate-300">Receive instant WhatsApp alerts when knee-deep or higher water is reported within <b>500 meters</b> of your home or shop.</p>
+        <div>
+          <label class="block text-slate-400 mb-1">WhatsApp Phone Number *</label>
+          <input id="sub-phone" type="text" value="+919845012345" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Your Role *</label>
+          <select id="sub-role" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+            <option value="resident">Ground-Floor Resident</option>
+            <option value="shop">Small Shop Owner (Kirana / Garments)</option>
+            <option value="commuter">Daily Commuter / Delivery Agent</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-400 mb-1">Neighborhood / Area Preset *</label>
+          <select id="sub-area" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+            <option value="12.9063,77.5857,JP Nagar 6th Phase">JP Nagar 6th Phase</option>
+            <option value="12.9352,77.6245,Koramangala 4th Block">Koramangala 4th Block</option>
+            <option value="12.9177,77.6238,Silk Board Junction">Silk Board Junction</option>
+            <option value="12.9784,77.6408,Indiranagar 100ft Rd">Indiranagar 100ft Rd</option>
+            <option value="12.9304,77.6784,Bellandur">Bellandur</option>
+          </select>
+        </div>
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-xl shadow-lg transition text-sm mt-2">
+          Activate WhatsApp Alerts
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 hidden bg-slate-950 border border-emerald-500 text-white px-4 py-3 rounded-xl shadow-2xl text-xs max-w-sm"></div>
+
+  <!-- ========================================================= -->
+  <!-- FRONTEND LOGIC & REAL-TIME SYNC                           -->
+  <!-- ========================================================= -->
+  <script>
+    let map, markersLayer;
+    let currentTimeFilter = 24;
+    let selectedSeverity = 'medium';
+    let cachedReports = [];
+
+    const SEVERITY_COLORS = {
+      none: '#10b981',   // Emerald Green
+      low: '#fde047',    // Yellow
+      medium: '#f59e0b', // Amber
+      high: '#ef4444'    // Red
+    };
+
+    const SEVERITY_NAMES = {
+      none: 'No Water / Wet Road',
+      low: 'Ankle-Deep (~0-10 cm)',
+      medium: 'Knee-Deep (~10-30 cm)',
+      high: 'Above Knee (>30 cm)'
+    };
+
+    // Initialize Leaflet Map centered on Bengaluru
+    function initMap() {
+      map = L.map('map').setView([12.9260, 77.6100], 13);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        maxZoom: 19
+      }).addTo(map);
+
+      markersLayer = L.layerGroup().addTo(map);
+
+      // Click anywhere on map to pre-fill coordinates for quick reporting
+      map.on('click', function(e) {
+        const lat = e.latlng.lat.toFixed(4);
+        const lng = e.latlng.lng.toFixed(4);
+        document.getElementById('report-lat').value = lat;
+        document.getElementById('report-lng').value = lng;
+        document.getElementById('report-coords-display').innerText = `${lat}, ${lng}`;
+        openReportModal();
+      });
+
+      fetchAndRenderReports();
+    }
+
+    async function fetchAndRenderReports() {
+      try {
+        const res = await fetch(`/api/reports?hours=${currentTimeFilter}`);
+        cachedReports = await res.json();
+        markersLayer.clearLayers();
+
+        document.getElementById('live-report-count').innerText = `${cachedReports.length} Reports`;
+
+        cachedReports.forEach(r => {
+          const color = SEVERITY_COLORS[r.severity] || '#3b82f6';
+          
+          // Draw 300m impact circle for medium/high reports
+          if (r.severity === 'high' || r.severity === 'medium') {
+            L.circle([r.lat, r.lng], {
+              color: color,
+              fillColor: color,
+              fillOpacity: 0.12,
+              radius: 300,
+              weight: 1
+            }).addTo(markersLayer);
+          }
+
+          const marker = L.circleMarker([r.lat, r.lng], {
+            radius: r.severity === 'high' ? 11 : 9,
+            fillColor: color,
+            color: '#0f172a',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.95
+          });
+
+          const timeStr = new Date(r.created_at + 'Z').toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          const badge = r.source === 'whatsapp' ? '💬 WhatsApp Bot' : '📱 In-App';
+          
+          marker.bindPopup(`
+            <div style="min-width:190px; color:#0f172a;">
+              <div style="font-size:11px; font-weight:700; color:#475569;">${badge} • ${timeStr}</div>
+              <div style="font-size:14px; font-weight:800; margin-top:2px;">${r.location_name}</div>
+              <div style="margin-top:4px; display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700; background:${color}; color:#000;">
+                ${SEVERITY_NAMES[r.severity]}
+              </div>
+              <p style="font-size:12px; margin-top:6px; color:#334155;">${r.description || 'No additional notes'}</p>
+            </div>
+          `);
+          marker.addTo(markersLayer);
+        });
+      } catch (err) {
+        console.error('Error loading reports:', err);
+      }
+    }
+
+    function setTimeFilter(hours) {
+      currentTimeFilter = hours;
+      [1, 6, 24].forEach(h => {
+        const btn = document.getElementById(`time-${h}`);
+        btn.className = h === hours
+          ? 'py-1 rounded font-medium bg-blue-600 text-white'
+          : 'py-1 rounded font-medium text-slate-300 hover:bg-slate-700';
+      });
+      fetchAndRenderReports();
+    }
+
+    // Tab Navigation
+    function switchTab(tab) {
+      ['map', 'whatsapp', 'admin'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById(`tab-${t}`);
+        if (t === tab) {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-blue-600 text-white transition flex items-center gap-1.5';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium text-slate-300 hover:text-white transition flex items-center gap-1.5';
+        }
+      });
+      if (tab === 'map') {
+        setTimeout(() => map.invalidateSize(), 100);
+        fetchAndRenderReports();
+      } else if (tab === 'admin') {
+        loadAdminDashboard();
+      }
+    }
+
+    // One-Tap Reporting Modal
+    function openReportModal() {
+      openModal('reportModal');
+    }
+    function openModal(id) {
+      document.getElementById(id).classList.remove('hidden');
+      document.getElementById(id).classList.add('flex');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+      document.getElementById(id).classList.remove('flex');
+    }
+
+    function selectSeverity(sev) {
+      selectedSeverity = sev;
+      ['none', 'low', 'medium', 'high'].forEach(s => {
+        const el = document.getElementById(`sev-btn-${s}`);
+        if (s === sev) {
+          el.className = 'sev-btn p-3 rounded-xl border-2 border-blue-500 bg-blue-500/10 text-left transition';
+        } else {
+          el.className = 'sev-btn p-3 rounded-xl border border-slate-700 bg-slate-800 text-left transition';
+        }
+      });
+    }
+
+    function useBrowserGPS() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          const lat = pos.coords.latitude.toFixed(4);
+          const lng = pos.coords.longitude.toFixed(4);
+          document.getElementById('report-lat').value = lat;
+          document.getElementById('report-lng').value = lng;
+          document.getElementById('report-coords-display').innerText = `${lat}, ${lng}`;
+          showToast('📍 Captured your live GPS coordinates!');
+        }, () => {
+          showToast('⚠️ Using default Bengaluru demo coordinates.');
+        });
+      }
+    }
+
+    async function submitOneTapReport(e) {
+      e.preventDefault();
+      const lat = parseFloat(document.getElementById('report-lat').value);
+      const lng = parseFloat(document.getElementById('report-lng').value);
+      const locName = document.getElementById('report-loc-name').value;
+      const note = document.getElementById('report-note').value;
+
+      const res = await fetch('/api/reports', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          lat, lng,
+          severity: selectedSeverity,
+          location_name: locName || null,
+          description: note,
+          source: 'app'
+        })
+      });
+      const data = await res.json();
+      closeModal('reportModal');
+      document.getElementById('report-note').value = '';
+      document.getElementById('report-loc-name').value = '';
+      
+      await fetchAndRenderReports();
+      map.setView([lat, lng], 15);
+      showToast(`✅ Flood Report Added! 🔔 ${data.alerts_triggered} nearby WhatsApp alert(s) triggered.`);
+    }
+
+    // Subscribe Modal
+    async function submitSubscription(e) {
+      e.preventDefault();
+      const phone = document.getElementById('sub-phone').value;
+      const role = document.getElementById('sub-role').value;
+      const [lat, lng, areaName] = document.getElementById('sub-area').value.split(',');
+
+      await fetch('/api/users', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          phone_number: phone,
+          role: role,
+          home_lat: parseFloat(lat),
+          home_lng: parseFloat(lng),
+          area_name: areaName
+        })
+      });
+      closeModal('subscribeModal');
+      showToast(`🔔 Subscribed ${phone} to 500m alerts around ${areaName}!`);
+    }
+
+    // WhatsApp Simulator Functions
+    function appendChatBubble(sender, text) {
+      const box = document.getElementById('wa-chat-box');
+      const isUser = sender === 'user';
+      const wrapper = document.createElement('div');
+      wrapper.className = `flex ${isUser ? 'justify-end' : 'justify-start'}`;
+      
+      const formatted = text.replace(/\*(.*?)\*/g, '<b>$1</b>');
+      wrapper.innerHTML = `
+        <div class="${isUser ? 'bg-[#d9fdd3] rounded-tr-none' : 'bg-white rounded-tl-none'} rounded-xl p-3 max-w-md shadow border border-slate-200">
+          ${!isUser ? '<p class="font-semibold text-emerald-800 text-xs mb-1">FloodLane Bot</p>' : ''}
+          <p class="whitespace-pre-line text-xs sm:text-sm text-slate-900">${formatted}</p>
+          <p class="text-[10px] text-slate-400 text-right mt-1">${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</p>
+        </div>
+      `;
+      box.appendChild(wrapper);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendSimulatedWhatsApp(e) {
+      e.preventDefault();
+      const input = document.getElementById('wa-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      await dispatchWhatsAppSim(msg, null, null);
+    }
+
+    function triggerPreset(text) {
+      dispatchWhatsAppSim(text, null, null);
+    }
+
+    function sendWhatsAppWithGPS() {
+      dispatchWhatsAppSim('Waterlogging at my pinned location (Knee deep)', 12.9068, 77.5862);
+    }
+
+    async function dispatchWhatsAppSim(message, lat, lng) {
+      appendChatBubble('user', lat ? `📍 [Location Pin: ${lat}, ${lng}]\n${message}` : message);
+      const res = await fetch('/api/whatsapp/simulate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ message, lat, lng })
+      });
+      const data = await res.json();
+      appendChatBubble('bot', data.reply);
+      if (data.report_created) {
+        fetchAndRenderReports();
+        showToast(`🗺️ WhatsApp report plotted on Live Map! (${data.alerts_sent} alerts sent)`);
+      }
+    }
+
+    // Admin Dashboard Loader
+    async function loadAdminDashboard() {
+      const [statsRes, reportsRes, alertsRes] = await Promise.all([
+        fetch('/api/dashboard/stats'),
+        fetch('/api/reports?hours=24'),
+        fetch('/api/alerts')
+      ]);
+      const stats = await statsRes.json();
+      const reports = await reportsRes.json();
+      const alerts = await alertsRes.json();
+
+      document.getElementById('stat-total-reports').innerText = stats.total_reports;
+      document.getElementById('stat-high-reports').innerText = (stats.severity_breakdown.high || 0) + (stats.severity_breakdown.medium || 0);
+      document.getElementById('stat-alerts-sent').innerText = stats.total_alerts_sent;
+      document.getElementById('stat-subscribers').innerText = stats.active_subscribers;
+
+      // Render Reports Table
+      const tbody = document.getElementById('admin-reports-tbody');
+      tbody.innerHTML = reports.map(r => `
+        <tr class="hover:bg-slate-800/50">
+          <td class="py-2.5 px-2 font-medium text-white">${r.location_name}</td>
+          <td class="py-2.5 px-2">
+            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold" style="background:${SEVERITY_COLORS[r.severity]}25; color:${SEVERITY_COLORS[r.severity]}">
+              ${SEVERITY_NAMES[r.severity]}
+            </span>
+          </td>
+          <td class="py-2.5 px-2 uppercase text-[11px] text-slate-300">${r.source}</td>
+          <td class="py-2.5 px-2 text-slate-400">${r.description || '-'}</td>
+        </tr>
+      `).join('');
+
+      // Render Hotspots
+      const hsList = document.getElementById('admin-hotspots-list');
+      hsList.innerHTML = stats.top_hotspots.map((h, i) => `
+        <div class="flex items-center justify-between bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+          <span class="font-medium text-slate-200">#${i+1} ${h.area}</span>
+          <span class="bg-red-500/20 text-red-400 px-2.5 py-0.5 rounded-full font-bold">${h.count} reports</span>
+        </div>
+      `).join('');
+
+      // Render Alerts Log
+      const alList = document.getElementById('admin-alerts-list');
+      alList.innerHTML = alerts.length ? alerts.map(a => `
+        <div class="bg-slate-900 p-2.5 rounded-xl border border-slate-800 space-y-1">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="font-bold text-emerald-400"><i class="fa-brands fa-whatsapp"></i> To: ${a.phone_number}</span>
+            <span class="text-slate-500">${new Date(a.sent_at + 'Z').toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+          </div>
+          <p class="text-slate-300 whitespace-pre-line text-[11px]">${a.message.replace(/\*/g, '')}</p>
+        </div>
+      `).join('') : '<p class="text-slate-500">No alerts triggered yet.</p>';
+    }
+
+    function exportCSV() {
+      const headers = ['ID,Source,Latitude,Longitude,Location,Severity,Description,CreatedAt'];
+      const rows = cachedReports.map(r => 
+        `${r.id},${r.source},${r.lat},${r.lng},"${r.location_name}",${r.severity},"${(r.description||'').replace(/"/g, '""')}",${r.created_at}`
+      );
+      const blob = new Blob([headers.concat(rows).join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'floodlane_reports.csv';
+      a.click();
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.classList.remove('hidden');
+      setTimeout(() => t.classList.add('hidden'), 4000);
+    }
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>
